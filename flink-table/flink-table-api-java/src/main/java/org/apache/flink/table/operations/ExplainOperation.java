@@ -21,8 +21,8 @@ package org.apache.flink.table.operations;
 import java.util.Collections;
 
 /**
- * Operation to describe an EXPLAIN statement. NOTES: currently, only default behavior(EXPLAIN xx)
- * is supported.
+ * Operation to describe an EXPLAIN statement. NOTES: currently, only default behavior(EXPLAIN [plan
+ * for]* xx) is supported.
  */
 public class ExplainOperation implements Operation {
     private final Operation child;

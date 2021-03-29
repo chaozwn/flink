@@ -18,13 +18,14 @@
 
 package org.apache.flink.sql.parser;
 
+import org.apache.flink.sql.parser.ddl.SqlCreateTable;
+import org.apache.flink.sql.parser.error.SqlValidateException;
+import org.apache.flink.sql.parser.impl.FlinkSqlParserImpl;
+
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParserImplFactory;
 import org.apache.calcite.sql.parser.SqlParserTest;
-import org.apache.flink.sql.parser.ddl.SqlCreateTable;
-import org.apache.flink.sql.parser.error.SqlValidateException;
-import org.apache.flink.sql.parser.impl.FlinkSqlParserImpl;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 import org.hamcrest.TypeSafeDiagnosingMatcher;
@@ -1223,32 +1224,32 @@ public class FlinkSqlParserImplTest extends SqlParserTest {
 
     @Test
     public void testExplainJsonFormat() {
-        // unsupport testExplainJsonFormat now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainWithImpl() {
-        // unsupport testExplainWithImpl now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainWithoutImpl() {
-        // unsupport testExplainWithoutImpl now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainWithType() {
-        // unsupport testExplainWithType now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainAsXml() {
-        // unsupport testExplainWithType now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainAsJson() {
-        // unsupport testExplainWithType now
+        // TODO: FLINK-20562
     }
 
     @Test

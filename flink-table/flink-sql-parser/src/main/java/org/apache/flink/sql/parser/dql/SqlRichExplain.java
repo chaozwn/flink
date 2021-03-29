@@ -67,7 +67,8 @@ public class SqlRichExplain extends SqlCall {
         if (i == 0) {
             statement = operand;
         } else {
-            throw new AssertionError(i);
+            throw new UnsupportedOperationException(
+                    "SqlExplain SqlNode only support index equals 1");
         }
     }
 }

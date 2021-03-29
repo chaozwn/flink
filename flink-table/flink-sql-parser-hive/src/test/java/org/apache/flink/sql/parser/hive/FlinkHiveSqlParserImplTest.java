@@ -492,32 +492,32 @@ public class FlinkHiveSqlParserImplTest extends SqlParserTest {
 
     @Test
     public void testExplainJsonFormat() {
-        // unsupport testExplainJsonFormat now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainWithImpl() {
-        // unsupport testExplainWithImpl now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainWithoutImpl() {
-        // unsupport testExplainWithoutImpl now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainWithType() {
-        // unsupport testExplainWithType now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainAsXml() {
-        // unsupport testExplainWithType now
+        // Don't supported feature. Escape the test.
     }
 
     @Test
     public void testExplainAsJson() {
-        // unsupport testExplainWithType now
+        // TODO: FLINK-20562
     }
 
     @Test

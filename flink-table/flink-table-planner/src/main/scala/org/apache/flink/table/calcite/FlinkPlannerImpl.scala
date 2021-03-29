@@ -18,40 +18,42 @@
 
 package org.apache.flink.table.calcite
 
-import _root_.java.lang.{Boolean => JBoolean}
-import _root_.java.util
-import _root_.java.util.function.{Function => JFunction}
+import org.apache.flink.sql.parser.ExtendedSqlNode
+import org.apache.flink.sql.parser.dql.{SqlRichDescribeTable, SqlRichExplain, SqlShowCatalogs, SqlShowCurrentCatalog, SqlShowCurrentDatabase, SqlShowDatabases, SqlShowFunctions, SqlShowTables, SqlShowViews}
+import org.apache.flink.table.api.{TableException, ValidationException}
+import org.apache.flink.table.catalog.CatalogReader
+import org.apache.flink.table.parse.CalciteParser
 
 import org.apache.calcite.plan.RelOptTable.ViewExpander
 import org.apache.calcite.plan._
 import org.apache.calcite.rel.RelRoot
 import org.apache.calcite.rel.`type`.RelDataType
 import org.apache.calcite.rex.RexBuilder
-import org.apache.calcite.sql.advise.SqlAdvisorValidator
+import org.apache.calcite.sql.advise.{SqlAdvisor, SqlAdvisorValidator}
 import org.apache.calcite.sql.validate.SqlValidator
 import org.apache.calcite.sql.{SqlExplain, SqlKind, SqlNode, SqlOperatorTable}
 import org.apache.calcite.sql2rel.{SqlRexConvertletTable, SqlToRelConverter}
 import org.apache.calcite.tools.{FrameworkConfig, RelConversionException}
-import org.apache.flink.sql.parser.ExtendedSqlNode
-import org.apache.flink.sql.parser.dql._
-import org.apache.flink.table.api.{TableException, ValidationException}
-import org.apache.flink.table.catalog.CatalogReader
-import org.apache.flink.table.parse.CalciteParser
 
+import _root_.java.lang.{Boolean => JBoolean}
+import _root_.java.util
+import _root_.java.util.function.{Function => JFunction}
+
+import scala.collection.JavaConversions._
 import scala.collection.JavaConverters._
 
 /**
-  * NOTE: this is heavily inspired by Calcite's PlannerImpl.
-  * We need it in order to share the planner between the Table API relational plans
-  * and the SQL relation plans that are created by the Calcite parser.
-  * The main difference is that we do not create a new RelOptPlanner in the ready() method.
-  */
+ * NOTE: this is heavily inspired by Calcite's PlannerImpl.
+ * We need it in order to share the planner between the Table API relational plans
+ * and the SQL relation plans that are created by the Calcite parser.
+ * The main difference is that we do not create a new RelOptPlanner in the ready() method.
+ */
 class FlinkPlannerImpl(
     val config: FrameworkConfig,
     val catalogReaderSupplier: JFunction[JBoolean, CatalogReader],
     planner: RelOptPlanner,
     val typeFactory: FlinkTypeFactory)
-    extends ViewExpander {
+  extends ViewExpander {
 
   val operatorTable: SqlOperatorTable = config.getOperatorTable
   val parser: CalciteParser = new CalciteParser(config.getParserConfig)
@@ -66,27 +68,18 @@ class FlinkPlannerImpl(
       catalogReaderSupplier.apply(true), // ignore cases for lenient completion
       typeFactory,
       SqlValidator.Config.DEFAULT
-          .withSqlConformance(config.getParserConfig.conformance()))
-  }
-
-  def validate(sqlNode: SqlNode): SqlNode = {
-    val validator = getOrCreateSqlValidator()
-    validateInternal(sqlNode, validator)
-  }
-
-  def rel(validatedSqlNode: SqlNode): RelRoot = {
-    rel(validatedSqlNode, getOrCreateSqlValidator())
+        .withSqlConformance(config.getParserConfig.conformance()))
   }
 
   /**
-    * Get the [[FlinkCalciteSqlValidator]] instance from this planner, create a new instance
-    * if current validator has not been initialized, or returns the validator
-    * instance directly.
-    *
-    * <p>The validator instance creation is not thread safe.
-    *
-    * @return a new validator instance or current existed one
-    */
+   * Get the [[FlinkCalciteSqlValidator]] instance from this planner, create a new instance
+   * if current validator has not been initialized, or returns the validator
+   * instance directly.
+   *
+   * <p>The validator instance creation is not thread safe.
+   *
+   * @return a new validator instance or current existed one
+   */
   def getOrCreateSqlValidator(): FlinkCalciteSqlValidator = {
     if (validator == null) {
       val catalogReader = catalogReaderSupplier.apply(false)
@@ -101,10 +94,60 @@ class FlinkPlannerImpl(
       catalogReader,
       typeFactory,
       SqlValidator.Config.DEFAULT
-          .withIdentifierExpansion(true)
-          // Disable implicit type coercion for now.
-          .withTypeCoercionEnabled(false))
+        .withIdentifierExpansion(true)
+        // Disable implicit type coercion for now.
+        .withTypeCoercionEnabled(false))
     validator
+  }
+
+  def validate(sqlNode: SqlNode): SqlNode = {
+    val validator = getOrCreateSqlValidator()
+    validateInternal(sqlNode, validator)
+  }
+
+  private def validateInternal(sqlNode: SqlNode, validator: FlinkCalciteSqlValidator): SqlNode = {
+    try {
+      sqlNode.accept(new PreValidateReWriter(
+        validator.getCatalogReader.unwrap(classOf[CatalogReader]), typeFactory))
+      // do extended validation.
+      sqlNode match {
+        case node: ExtendedSqlNode =>
+          node.validate()
+        case _ =>
+      }
+      // no need to validate row type for DDL and insert nodes.
+      if (sqlNode.getKind.belongsTo(SqlKind.DDL)
+        || sqlNode.getKind == SqlKind.INSERT
+        || sqlNode.getKind == SqlKind.CREATE_FUNCTION
+        || sqlNode.getKind == SqlKind.DROP_FUNCTION
+        || sqlNode.getKind == SqlKind.OTHER_DDL
+        || sqlNode.isInstanceOf[SqlShowCatalogs]
+        || sqlNode.isInstanceOf[SqlShowCurrentCatalog]
+        || sqlNode.isInstanceOf[SqlShowDatabases]
+        || sqlNode.isInstanceOf[SqlShowCurrentDatabase]
+        || sqlNode.isInstanceOf[SqlShowTables]
+        || sqlNode.isInstanceOf[SqlShowFunctions]
+        || sqlNode.isInstanceOf[SqlShowViews]
+        || sqlNode.isInstanceOf[SqlRichDescribeTable]) {
+        return sqlNode
+      }
+      sqlNode match {
+        case richExplain: SqlRichExplain =>
+          val validated = validator.validate(richExplain.getStatement)
+          richExplain.setOperand(0, validated)
+          richExplain
+        case _ =>
+          validator.validate(sqlNode)
+      }
+    }
+    catch {
+      case e: RuntimeException =>
+        throw new ValidationException(s"SQL validation failed. ${e.getMessage}", e)
+    }
+  }
+
+  def rel(validatedSqlNode: SqlNode): RelRoot = {
+    rel(validatedSqlNode, getOrCreateSqlValidator())
   }
 
   private def rel(validatedSqlNode: SqlNode, sqlValidator: FlinkCalciteSqlValidator) = {
@@ -133,10 +176,6 @@ class FlinkPlannerImpl(
     }
   }
 
-  private def createRexBuilder: RexBuilder = {
-    new RexBuilder(typeFactory)
-  }
-
   override def expandView(
       rowType: RelDataType,
       queryString: String,
@@ -156,48 +195,7 @@ class FlinkPlannerImpl(
     rel(validated, validator)
   }
 
-  private def validateInternal(sqlNode: SqlNode, validator: FlinkCalciteSqlValidator): SqlNode = {
-    try {
-      sqlNode.accept(new PreValidateReWriter(
-        validator.getCatalogReader.unwrap(classOf[CatalogReader]), typeFactory))
-      // do extended validation.
-      sqlNode match {
-        case node: ExtendedSqlNode =>
-          node.validate()
-        case _ =>
-      }
-      // no need to validate row type for DDL and insert nodes.
-      if (sqlNode.getKind.belongsTo(SqlKind.DDL)
-          || sqlNode.getKind == SqlKind.INSERT
-          || sqlNode.getKind == SqlKind.CREATE_FUNCTION
-          || sqlNode.getKind == SqlKind.DROP_FUNCTION
-          || sqlNode.getKind == SqlKind.OTHER_DDL
-          || sqlNode.isInstanceOf[SqlShowCatalogs]
-          || sqlNode.isInstanceOf[SqlShowCurrentCatalog]
-          || sqlNode.isInstanceOf[SqlShowDatabases]
-          || sqlNode.isInstanceOf[SqlShowCurrentDatabase]
-          || sqlNode.isInstanceOf[SqlShowTables]
-          || sqlNode.isInstanceOf[SqlShowFunctions]
-          || sqlNode.isInstanceOf[SqlShowViews]
-          || sqlNode.isInstanceOf[SqlRichDescribeTable]) {
-        return sqlNode
-      }
-      sqlNode match {
-        case explain: SqlExplain =>
-          val validated = validator.validate(explain.getExplicandum)
-          explain.setOperand(0, validated)
-          explain
-        case richExplain: SqlRichExplain =>
-          val validated = validator.validate(richExplain.getStatement)
-          richExplain.setOperand(0, validated)
-          richExplain
-        case _ =>
-          validator.validate(sqlNode)
-      }
-    }
-    catch {
-      case e: RuntimeException =>
-        throw new ValidationException(s"SQL validation failed. ${e.getMessage}", e)
-    }
+  private def createRexBuilder: RexBuilder = {
+    new RexBuilder(typeFactory)
   }
 }

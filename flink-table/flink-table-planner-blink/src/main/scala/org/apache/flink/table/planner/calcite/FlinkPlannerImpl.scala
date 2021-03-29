@@ -142,10 +142,6 @@ class FlinkPlannerImpl(
         return sqlNode
       }
       sqlNode match {
-        case explain: SqlExplain =>
-          val validated = validator.validate(explain.getExplicandum)
-          explain.setOperand(0, validated)
-          explain
         case richExplain: SqlRichExplain =>
           val validated = validator.validate(richExplain.getStatement)
           richExplain.setOperand(0,validated)
