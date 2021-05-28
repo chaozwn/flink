@@ -478,6 +478,38 @@ class BatchTableEnvironmentTest extends TableTestBase {
   }
 
   @Test
+  def testExecuteSqlWithExplainDetailsSelect(): Unit = {
+    val util = batchTestUtil()
+    val createTableStmt =
+      """
+        |CREATE TABLE MyTable (
+        |  a bigint,
+        |  b int,
+        |  c varchar
+        |) with (
+        |  'connector' = 'COLLECTION',
+        |  'is-bounded' = 'false'
+        |)
+      """.stripMargin
+    val tableResult1 = util.tableEnv.executeSql(createTableStmt)
+    assertEquals(ResultKind.SUCCESS, tableResult1.getResultKind)
+
+    val tableResult2 = util.tableEnv.executeSql(
+      "explain changelog_mode, estimated_cost, json_execution_plan " +
+        "select * from MyTable where a > 10")
+    assertEquals(ResultKind.SUCCESS_WITH_CONTENT, tableResult2.getResultKind)
+    val it = tableResult2.collect()
+    assertTrue(it.hasNext)
+    val row = it.next()
+    assertEquals(1, row.getArity)
+    val actual = replaceVariableAddress(row.getField(0).toString)
+    val expected = replaceVariableAddress(
+      readFromResource("testExecuteSqlWithExplainDetailsSelect1.out"))
+    assertEquals(replaceStageId(expected), replaceStageId(actual))
+    assertFalse(it.hasNext)
+  }
+
+  @Test
   def testExplainSqlWithInsert(): Unit = {
     val util = batchTestUtil()
     val createTableStmt1 =
@@ -511,6 +543,51 @@ class BatchTableEnvironmentTest extends TableTestBase {
       "insert into MySink select a, b from MyTable where a > 10")
     val expected = readFromResource("testExplainSqlWithInsert1.out")
     assertEquals(replaceStageId(expected), replaceStageId(actual))
+  }
+
+  @Test
+  def testExecuteSqlWithExplainDetailsInsert(): Unit = {
+    val util = batchTestUtil()
+    val createTableStmt1 =
+      """
+        |CREATE TABLE MyTable (
+        |  a bigint,
+        |  b int,
+        |  c varchar
+        |) with (
+        |  'connector' = 'COLLECTION',
+        |  'is-bounded' = 'false'
+        |)
+      """.stripMargin
+    val tableResult1 = util.tableEnv.executeSql(createTableStmt1)
+    assertEquals(ResultKind.SUCCESS, tableResult1.getResultKind)
+
+    val createTableStmt2 =
+      """
+        |CREATE TABLE MySink (
+        |  d bigint,
+        |  e int
+        |) with (
+        |  'connector' = 'COLLECTION',
+        |  'is-bounded' = 'false'
+        |)
+      """.stripMargin
+    val tableResult2 = util.tableEnv.executeSql(createTableStmt2)
+    assertEquals(ResultKind.SUCCESS, tableResult2.getResultKind)
+
+    val tableResult3 = util.tableEnv.executeSql(
+      "explain changelog_mode, estimated_cost, json_execution_plan " +
+        "insert into MySink select a, b from MyTable where a > 10")
+    assertEquals(ResultKind.SUCCESS_WITH_CONTENT, tableResult3.getResultKind)
+    val it = tableResult3.collect()
+    assertTrue(it.hasNext)
+    val row = it.next()
+    assertEquals(1, row.getArity)
+    val actual = replaceVariableAddress(row.getField(0).toString)
+    val expected = replaceVariableAddress(
+      readFromResource("testExecuteSqlWithExplainDetailsInsert1.out"))
+    assertEquals(replaceStageId(expected), replaceStageId(actual))
+    assertFalse(it.hasNext)
   }
 
   @Test

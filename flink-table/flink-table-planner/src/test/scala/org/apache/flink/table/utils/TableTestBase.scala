@@ -231,6 +231,14 @@ object TableTestUtil {
   def replaceStageId(s: String): String = {
     s.replaceAll("\\r\\n", "\n").replaceAll("Stage \\d+", "")
   }
+
+  def replaceStreamNodeId(s: String): String = {
+    s.replaceAll("\"id\" : \\d+", "\"id\" : ").trim
+  }
+
+  def replaceVariableAddress(s: String): String = {
+    s.replaceAll("@[0-9a-f]{0,8}", "").trim
+  }
 }
 
 case class BatchTableTestUtil(

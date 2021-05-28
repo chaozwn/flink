@@ -61,6 +61,7 @@ import _root_.java.util.{Optional, ArrayList => JArrayList, Collections => JColl
 import _root_.scala.collection.JavaConversions._
 import _root_.scala.collection.JavaConverters._
 import _root_.scala.util.Try
+import scala.collection.mutable
 
 /**
   * The abstract base class for the implementation of batch TableEnvironment.
@@ -826,7 +827,15 @@ abstract class TableEnvImpl(
       case _: ShowViewsOperation =>
         buildShowResult("view name", listViews())
       case explainOperation: ExplainOperation =>
-        val explanation = explainInternal(JCollections.singletonList(explainOperation.getChild))
+        val explainDetails = explainOperation.getExplainDetails.map {
+          case "ESTIMATED_COST" => ExplainDetail.ESTIMATED_COST
+          case "CHANGELOG_MODE" => ExplainDetail.CHANGELOG_MODE
+          case "JSON_EXECUTION_PLAN" => ExplainDetail.JSON_EXECUTION_PLAN
+          case default => throw new TableException(s"Unsupported EXPLAIN DETAIL: $default")
+        }.toList
+        // get ExplainDetails, set it when use explainInternal method
+        val explanation = explainInternal(JCollections.singletonList(explainOperation.getChild)
+          , explainDetails: _*)
         TableResultImpl.builder.
           resultKind(ResultKind.SUCCESS_WITH_CONTENT)
           .schema(ResolvedSchema.of(Column.physical("result", DataTypes.STRING)))

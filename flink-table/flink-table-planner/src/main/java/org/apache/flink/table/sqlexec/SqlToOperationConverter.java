@@ -115,6 +115,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -649,6 +650,7 @@ public class SqlToOperationConverter {
     private Operation convertRichExplain(SqlRichExplain sqlExplain) {
         Operation operation;
         SqlNode sqlNode = sqlExplain.getStatement();
+        Set<String> explainDetails = sqlExplain.getExplainDetails();
         if (sqlNode instanceof RichSqlInsert) {
             operation = convertSqlInsert((RichSqlInsert) sqlNode);
         } else if (sqlNode instanceof SqlSelect) {
@@ -658,7 +660,7 @@ public class SqlToOperationConverter {
                     String.format(
                             "EXPLAIN statement doesn't support %s", sqlNode.getKind().toString()));
         }
-        return new ExplainOperation(operation);
+        return new ExplainOperation(operation, explainDetails);
     }
 
     /** Convert DESCRIBE [EXTENDED] [[catalogName.] dataBasesName].sqlIdentifier. */

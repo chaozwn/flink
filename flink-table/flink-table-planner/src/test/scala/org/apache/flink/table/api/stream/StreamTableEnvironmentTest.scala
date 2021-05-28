@@ -27,7 +27,8 @@ import org.apache.flink.streaming.api.environment.{StreamExecutionEnvironment =>
 import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
 import org.apache.flink.table.api.Expressions.$
 import org.apache.flink.table.api._
-import org.apache.flink.table.api.bridge.java.internal.{StreamTableEnvironmentImpl => JStreamTableEnvironmentImpl}
+import org.apache.flink.table.api.bridge.java.internal.{StreamTableEnvironmentImpl =>
+JStreamTableEnvironmentImpl}
 import org.apache.flink.table.api.bridge.java.{StreamTableEnvironment => JStreamTableEnv}
 import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.table.api.config.TableConfigOptions
@@ -41,7 +42,7 @@ import org.apache.flink.table.utils.{CatalogManagerMocks, TableTestBase}
 import org.apache.flink.types.Row
 
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue, fail}
-import org.junit.{Assert, Test}
+import org.junit.Test
 import org.mockito.Mockito.{mock, when}
 
 import java.lang.{Integer => JInt, Long => JLong}
@@ -66,7 +67,7 @@ class StreamTableEnvironmentTest extends TableTestBase {
     val table2 = util.addTable[(Long, Int, String)]('d, 'e, 'f)
 
     val sqlTable2 = util.tableEnv.sqlQuery(s"SELECT d, e, f FROM $table2 " +
-        s"UNION ALL SELECT a, b, c FROM $table")
+      s"UNION ALL SELECT a, b, c FROM $table")
 
     val expected2 = binaryNode(
       "DataStreamUnion",
@@ -210,6 +211,36 @@ class StreamTableEnvironmentTest extends TableTestBase {
     jTEnv.fromDataStream(ds, $("rt").rowtime(), $("b"), $("c"), $("d"), $("e"), $("pt").proctime())
   }
 
+  private def prepareSchemaExpressionParser:
+  (JStreamTableEnv, DataStream[JTuple5[JLong, JInt, String, JInt, JLong]]) = {
+
+    val jStreamExecEnv = mock(classOf[JStreamExecEnv])
+    when(jStreamExecEnv.getStreamTimeCharacteristic).thenReturn(TimeCharacteristic.EventTime)
+    val config = new TableConfig
+    val catalogManager = CatalogManagerMocks.createEmptyCatalogManager()
+    val moduleManager: ModuleManager = new ModuleManager
+    val executor: StreamExecutor = new StreamExecutor(jStreamExecEnv)
+    val functionCatalog = new FunctionCatalog(config, catalogManager, moduleManager)
+    val streamPlanner = new StreamPlanner(executor, config, functionCatalog, catalogManager)
+    val jTEnv = new JStreamTableEnvironmentImpl(
+      catalogManager,
+      moduleManager,
+      functionCatalog,
+      config,
+      jStreamExecEnv,
+      streamPlanner,
+      executor,
+      true,
+      Thread.currentThread().getContextClassLoader)
+
+    val sType = new TupleTypeInfo(Types.LONG, Types.INT, Types.STRING, Types.INT, Types.LONG)
+      .asInstanceOf[TupleTypeInfo[JTuple5[JLong, JInt, String, JInt, JLong]]]
+    val ds = mock(classOf[DataStream[JTuple5[JLong, JInt, String, JInt, JLong]]])
+    when(ds.getType).thenReturn(sType)
+
+    (jTEnv, ds)
+  }
+
   @Test
   def testExecuteSqlWithExplainSelect(): Unit = {
     val util = streamTestUtil()
@@ -322,7 +353,7 @@ class StreamTableEnvironmentTest extends TableTestBase {
     } catch {
       case e: SqlParserException => {
         assertTrue(e.getMessage
-            .contains("Was expecting:\n    \"FOR\" ..."))
+          .contains("Was expecting:\n    \"FOR\" ..."))
       }
       case e =>
         fail("This should not happen, " + e.getMessage)
@@ -349,6 +380,38 @@ class StreamTableEnvironmentTest extends TableTestBase {
     val actual = util.tableEnv.explainSql("select * from MyTable where a > 10")
     val expected = readFromResource("testExplainSqlWithSelect0.out")
     assertEquals(replaceStageId(expected), replaceStageId(actual))
+  }
+
+  @Test
+  def testExecuteSqlWithExplainDetailsSelect(): Unit = {
+    val util = streamTestUtil()
+    val createTableStmt =
+      """
+        |CREATE TABLE MyTable (
+        |  a bigint,
+        |  b int,
+        |  c varchar
+        |) with (
+        |  'connector' = 'COLLECTION',
+        |  'is-bounded' = 'false'
+        |)
+      """.stripMargin
+    val tableResult1 = util.tableEnv.executeSql(createTableStmt)
+    assertEquals(ResultKind.SUCCESS, tableResult1.getResultKind)
+
+    val tableResult2 = util.tableEnv.executeSql(
+      "explain changelog_mode, estimated_cost, json_execution_plan " +
+        "select * from MyTable where a > 10")
+    assertEquals(ResultKind.SUCCESS_WITH_CONTENT, tableResult2.getResultKind)
+    val it = tableResult2.collect()
+    assertTrue(it.hasNext)
+    val row = it.next()
+    assertEquals(1, row.getArity)
+    val actual = replaceStreamNodeId(row.getField(0).toString.trim)
+    val expected = replaceStreamNodeId(
+      readFromResource("testExecuteSqlWithExplainDetailsSelect0.out").trim)
+    assertEquals(replaceStageId(expected), replaceStageId(actual))
+    assertFalse(it.hasNext)
   }
 
   @Test
@@ -385,6 +448,51 @@ class StreamTableEnvironmentTest extends TableTestBase {
       "insert into MySink select a, b from MyTable where a > 10")
     val expected = readFromResource("testExplainSqlWithInsert0.out")
     assertEquals(replaceStageId(expected), replaceStageId(actual))
+  }
+
+  @Test
+  def testExecuteSqlWithExplainDetailsInsert(): Unit = {
+    val util = streamTestUtil()
+    val createTableStmt1 =
+      """
+        |CREATE TABLE MyTable (
+        |  a bigint,
+        |  b int,
+        |  c varchar
+        |) with (
+        |  'connector' = 'COLLECTION',
+        |  'is-bounded' = 'false'
+        |)
+      """.stripMargin
+    val tableResult1 = util.tableEnv.executeSql(createTableStmt1)
+    assertEquals(ResultKind.SUCCESS, tableResult1.getResultKind)
+
+    val createTableStmt2 =
+      """
+        |CREATE TABLE MySink (
+        |  d bigint,
+        |  e int
+        |) with (
+        |  'connector' = 'COLLECTION',
+        |  'is-bounded' = 'false'
+        |)
+      """.stripMargin
+    val tableResult2 = util.tableEnv.executeSql(createTableStmt2)
+    assertEquals(ResultKind.SUCCESS, tableResult2.getResultKind)
+
+    val tableResult3 = util.tableEnv.executeSql(
+      "explain changelog_mode, estimated_cost, json_execution_plan " +
+        "insert into MySink select a, b from MyTable where a > 10")
+    assertEquals(ResultKind.SUCCESS_WITH_CONTENT, tableResult3.getResultKind)
+    val it = tableResult3.collect()
+    assertTrue(it.hasNext)
+    val row = it.next()
+    assertEquals(1, row.getArity)
+    val actual = replaceStreamNodeId(row.getField(0).toString.trim)
+    val expected = replaceStreamNodeId(readFromResource
+    ("testExecuteSqlWithExplainDetailsInsert0.out").trim)
+    assertEquals(replaceStageId(expected), replaceStageId(actual))
+    assertFalse(it.hasNext)
   }
 
   @Test
@@ -433,40 +541,10 @@ class StreamTableEnvironmentTest extends TableTestBase {
     thrown.expect(classOf[IllegalArgumentException])
     thrown.expectMessage(
       "Mismatch between configured planner and actual planner. " +
-      "Currently, the 'execution.runtime-mode' and 'table.planner' can only be set " +
-      "when instantiating the table environment. Subsequent changes are not supported. " +
-      "Please instantiate a new TableEnvironment if necessary.")
+        "Currently, the 'execution.runtime-mode' and 'table.planner' can only be set " +
+        "when instantiating the table environment. Subsequent changes are not supported. " +
+        "Please instantiate a new TableEnvironment if necessary.")
     util.tableEnv.explainSql("select * from MyTable where a > 10")
-  }
-
-  private def prepareSchemaExpressionParser:
-    (JStreamTableEnv, DataStream[JTuple5[JLong, JInt, String, JInt, JLong]]) = {
-
-    val jStreamExecEnv = mock(classOf[JStreamExecEnv])
-    when(jStreamExecEnv.getStreamTimeCharacteristic).thenReturn(TimeCharacteristic.EventTime)
-    val config = new TableConfig
-    val catalogManager = CatalogManagerMocks.createEmptyCatalogManager()
-    val moduleManager: ModuleManager = new ModuleManager
-    val executor: StreamExecutor = new StreamExecutor(jStreamExecEnv)
-    val functionCatalog = new FunctionCatalog(config, catalogManager, moduleManager)
-    val streamPlanner = new StreamPlanner(executor, config, functionCatalog, catalogManager)
-    val jTEnv = new JStreamTableEnvironmentImpl(
-      catalogManager,
-      moduleManager,
-      functionCatalog,
-      config,
-      jStreamExecEnv,
-      streamPlanner,
-      executor,
-      true,
-      Thread.currentThread().getContextClassLoader)
-
-    val sType = new TupleTypeInfo(Types.LONG, Types.INT, Types.STRING, Types.INT, Types.LONG)
-      .asInstanceOf[TupleTypeInfo[JTuple5[JLong, JInt, String, JInt, JLong]]]
-    val ds = mock(classOf[DataStream[JTuple5[JLong, JInt, String, JInt, JLong]]])
-    when(ds.getType).thenReturn(sType)
-
-    (jTEnv, ds)
   }
 
 }
