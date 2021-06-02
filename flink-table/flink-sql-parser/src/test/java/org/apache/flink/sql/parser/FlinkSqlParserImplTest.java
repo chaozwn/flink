@@ -1310,6 +1310,18 @@ public class FlinkSqlParserImplTest extends SqlParserTest {
     }
 
     @Test
+    public void testExplainUnion() {
+        String sql = "explain estimated_cost select * from emps union all select * from emps";
+        String expected =
+                "EXPLAIN ESTIMATED_COST (SELECT *\n"
+                        + "FROM `EMPS`\n"
+                        + "UNION ALL\n"
+                        + "SELECT *\n"
+                        + "FROM `EMPS`)";
+        this.sql(sql).ok(expected);
+    }
+
+    @Test
     public void testExplainJsonFormat() {
         // Unsupported feature. Escape the test.
     }
